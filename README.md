@@ -39,10 +39,6 @@ planner → generator → designer / refiner → evaluator
 
 メインセッションはオーケストレーターに徹し、自分ではコードを書かない。差し戻しが3回続いたら止めてユーザーに報告する。
 
-## 参考
-
-[Shin-sibainu/agent-quartet-harness](https://github.com/Shin-sibainu/agent-quartet-harness) の構成をもとに、アプリの種類ごとに作り替えた。
-
 ## ライセンス
 
 [MIT](LICENSE)
