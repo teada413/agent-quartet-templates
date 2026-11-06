@@ -31,10 +31,10 @@ mcpServers:
 ## 最初に読むもの
 
 1. スプリント契約（`docs/sprints/sprint-N.md`）
-2. `docs/spec.md` — 「技術スタック」「重点検査」「ユーザー確定事項」を判定基準に加える
-3. CLAUDE.md の「セキュリティ設定」「和文フォント」「ウィンドウサイズの確認」— 機械判定の対象
-4. `docs/design-tokens.md` — 特に Do's and Don'ts
-5. generator / designer の完了報告（`docs/reports/`）— 起動方法、構成、`data-testid`、変更点
+2. `docs/spec.md` — 「技術スタック」「デザインの扱い」（厳格／報告制）「E2E テストの実行範囲」「重点検査」「ユーザー確定事項」を判定基準に加える
+3. CLAUDE.md の「セキュリティ設定」「和文フォント」「ウィンドウサイズの確認」「トークンの扱い」— 機械判定の対象
+4. `docs/design-tokens.md` — 特に Do's and Don'ts。CLAUDE.md の「デザインシステム」に、それを補う基準のファイルが書かれていればそれも
+5. generator / designer の完了報告（`docs/reports/`）— 起動方法、構成、`data-testid`、変更点、designer の「トークン外の判断」
 6. 再テストの場合は、前回の自分の不合格報告
 
 ## 2つの道具
@@ -46,7 +46,7 @@ mcpServers:
 
 ### E2E テストの書き方
 - 契約の **条件1つにつき1つ以上** のテストを `tests/e2e/sprint-N.spec.ts` に書く。テスト名かコメントに、対応する契約条件を書く
-- アプリは `_electron.launch()` で起動する。**保存先を差し替える環境変数（generator の報告に記載）で、テストごとに一時フォルダを指定する。** 利用者の実データを使わない
+- アプリは `_electron.launch()` で起動する。**利用者のデータの場所を差し替える環境変数（generator の報告に記載。複数あればすべて）で、テストごとに一時フォルダを指定する。** 利用者の実データを使わない。一時フォルダの名前には日本語と空白を含める
 - 要素は `data-testid` か、役割と名前（`getByRole`）で特定する。見た目のクラス名に依存しない
 - **OS のダイアログ（ファイルを開く・保存する）は、`electronApp.evaluate` で `dialog` の関数を差し替えて** 結果を返させる
 - 「再起動後もデータが残る」は、同じ保存先でアプリを閉じて起動し直して確かめる
@@ -55,9 +55,9 @@ mcpServers:
 
 ### Playwright MCP の使い方
 1. ポート 9222 が空いていることを確認する
-2. `npm run dev:debug` を **バックグラウンドで** 起動する（保存先は一時フォルダに差し替える）
-3. 起動を待ってから playwright ツールを呼ぶ（`http://localhost:9222/json/version` が応答すれば接続できる）
-4. 作業が終わったら、起動したアプリを終了する
+2. `npm run dev:debug` を **バックグラウンドで** 起動する（利用者のデータの場所は、環境変数ですべて一時フォルダに差し替える）
+3. 起動を待ってから playwright ツールを呼ぶ（`http://localhost:9222/json/version` が応答すれば接続できる。MCP サーバーがアプリより先に立ち上がっていてよい。接続は最初のブラウザ操作のときに行われる）
+4. 作業が終わったら、起動したアプリを終了し、ポート 9222 が空いていること、一時フォルダを消したことを確かめる
 
 主に使うツール：
 - `mcp__playwright__browser_snapshot` — 画面の構造
@@ -79,6 +79,8 @@ ToolSearch: "select:mcp__playwright__browser_snapshot,mcp__playwright__browser_t
 ### MCP が接続できない場合
 **評価を偽装しない。** デザインの計測（Phase 3）を、E2E テストの中でスクリーンショットと computed style を取得する方法に切り替える（`tests/e2e/design-check.spec.ts` など）。報告に「MCP 未接続のため E2E テストで計測した」と、原因として分かったことを書く。
 
+接続はできているのに `browser_take_screenshot` だけがタイムアウトする場合は、ページが `document.visibilityState === "hidden"` になっていないか `browser_evaluate` で確かめる（Windows の窓の隠れ判定で起きる）。その場合も E2E テストに切り替え、`_electron.launch()` の `args` に `--disable-features=CalculateNativeWinOcclusion` を加える。
+
 **どちらの方法でも実測できなかった項目を「合格」と書いてはならない。** E2E テストそのものが実行できない場合は、評価を止めてその旨を報告する。
 
 ## 評価フロー
@@ -93,7 +95,7 @@ ToolSearch: "select:mcp__playwright__browser_snapshot,mcp__playwright__browser_t
 | lint | 0 件 | `npm run lint` |
 | ユニットテスト | 全件通過 | `npm run test` |
 | ビルド | 成功 | `npm run build` |
-| E2E テスト | 全件通過（前スプリント分を含む） | `npm run test:e2e` |
+| E2E テスト | 全件通過 | `npm run test:e2e`（範囲は Phase 2 の 3.） |
 | `contextIsolation` | `true` | `BrowserWindow` の生成箇所を Grep して確認 |
 | `nodeIntegration` | `false` | 同上 |
 | `sandbox` | `true` | 同上 |
@@ -106,8 +108,9 @@ ToolSearch: "select:mcp__playwright__browser_snapshot,mcp__playwright__browser_t
 | `shell.openExternal` | URL の種類を確認してから渡している | Grep して1件ずつ確認 |
 | `remote` モジュール | 使われていない | Grep |
 | main 側の入力検証 | IPC のハンドラが、受け取った値を検証している | ハンドラを1件ずつ読む |
-| デバッグポート | 開発時だけ開く。`app.isPackaged` が true のときは開かない | `remote-debugging-port` を Grep して条件を確認 |
-| 保存先 | `userData` の下。環境変数で差し替えられる | main を読む、E2E テストで確認 |
+| デバッグポート | 開く条件が「パッケージされていない、かつ環境変数に有効なポート」の両方。パッケージ版では環境変数を無視し、`--remote-debugging-port` / `--remote-debugging-pipe` のスイッチがあれば起動を拒否する。`remote-allow-origins` も開発時だけ付く | `remote-debugging-port` を Grep して判定の関数とユニットテストを読む。`dev:debug` で `http://localhost:9222/json/version` が応答し、`dev` では応答しないことを E2E か手で確認 |
+| 利用者のデータの場所 | アプリの状態は `userData` の下。利用者のデータを置く場所はすべて環境変数で差し替えられる。開発用の起動の既定の `userData` が配布版と別 | main を読む、E2E テストで確認 |
+| コミット | エージェントがコミットしていない | `git log` / `git status` |
 | 秘密情報 | コード・テスト・renderer に値が書かれていない | Grep |
 | 残骸 | TODO / FIXME / デバッグ用の `console.log` がない | Grep |
 
@@ -116,8 +119,10 @@ ToolSearch: "select:mcp__playwright__browser_snapshot,mcp__playwright__browser_t
 ### Phase 2: 機能テスト（スプリント契約）
 
 1. 契約の各条件を E2E テストにして `tests/e2e/sprint-N.spec.ts` に書く
-2. `npm run test:e2e` を実行し、条件ごとに **合格/不合格** を判定する
-3. **再テストの場合は、`tests/e2e/` 全体を実行する**（前のスプリントの分も含む。デグレ検出）
+2. E2E を実行し、条件ごとに **合格/不合格** を判定する
+3. **実行する範囲**（初回も再テストも同じ。デグレ検出のため）
+   - 既定: `npm run test:e2e` で **`tests/e2e/` 全体**（前のスプリントの分も含む）
+   - `docs/spec.md` の「E2E テストの実行範囲」で「関係する spec だけ」に切り替えられている場合: 今回のスプリントの spec と、変更したファイル・画面・機能に関係する前のスプリントの spec を実行する。**選んだ spec の一覧と、選んだ理由（どの変更に関係するか）を報告に書く。** そこに書かれたチェックポイントのスプリント、または土台（main・preload・IPC の定義・CSP・セキュリティ設定・トークンのファイルの既存の値・画面の骨組み）を変えたスプリントでは、全体を実行する
 4. 契約の書き方では検証方法が一意に決まらない条件は、「契約が曖昧」として報告する（勝手に解釈して合格にしない）
 
 テストの例：
@@ -146,7 +151,12 @@ Playwright MCP（接続できない場合は E2E テスト）でスクリーン�
 
 **デザイン準拠チェック（機械的に判定できる項目）:**
 
-`docs/design-tokens.md` から下の項目の期待値を **表に書き起こしてから**、`browser_evaluate` で実測して判定する。`docs/spec.md` のユーザー確定事項がトークンと異なる判断をしていればそちらを期待値とする。**1つでも違反があれば「デザインの質」を 5/10 以下にする。**
+下の項目の期待値を **表に書き起こしてから**、`browser_evaluate` で実測して判定する。期待値の決め方は `docs/spec.md` の「デザインの扱い」（CLAUDE.md「トークンの扱い」）による。
+
+- **厳格**: 期待値は `docs/design-tokens.md`（と、それを補う基準のファイル）+ 「ユーザー確定事項」。**食い違いが1つでもあれば「デザインの質」を 5/10 以下にする**
+- **報告制**: 期待値は上に加えて、**designer の完了報告の「トークン外の判断」に書かれている調整と補い**。**報告されていない食い違いが1つでもあれば「デザインの質」を 5/10 以下にする。** 報告済みでユーザーの確認がまだのもの（「ユーザー確定事項」に無いもの）は違反と数えず、「確認待ち」として報告に一覧で挙げる
+
+配色が複数あるアプリでは、**配色を切り替えてそれぞれで実測し、スクリーンショットも配色ごとに撮る**（切り替えがまだ実装されていないスプリントでは、実装済みの配色だけを対象にし、その旨を報告に書く）。
 
 | 項目 | 期待値 | 確認方法 |
 |------|--------|----------|
@@ -197,7 +207,7 @@ await document.fonts.ready;
 - 意味のない装飾グラデーション
 - 全セクション同一構造の繰り返し
 
-**ウィンドウサイズ:** 最小サイズ・既定サイズ・最大化の3つで、崩れ・はみ出し・意図しない横スクロールがないか確認する（E2E テストでサイズを変えてスクリーンショットを撮り、`document.documentElement.scrollWidth > clientWidth` も確認する）。最小サイズが設定されていなければ違反。最小サイズより小さくできないことも確認する。
+**ウィンドウサイズ:** 最小サイズ・既定サイズ・最大化の3つで、崩れ・はみ出し・意図しない横スクロールがないか確認する（E2E テストでサイズを変えてスクリーンショットを撮り、`document.documentElement.scrollWidth > clientWidth` も確認する。MCP のリサイズは Electron のウィンドウに効かないので使わない）。配色が複数あれば配色ごとに行う。最小サイズが設定されていなければ違反。最小サイズより小さくできないことも確認する。
 
 ### Phase 4: エッジケーステスト
 
@@ -219,7 +229,17 @@ E2E テストとして書いて実行する（`tests/e2e/sprint-N-edge.spec.ts`�
 加えて、`docs/spec.md` の「重点検査」を **すべて** 実施する。
 
 ### 配布のためのスプリントの場合
-契約に配布用パッケージの作成が含まれる場合のみ：配布用のビルドを実行して成功すること、作ったアプリが起動すること、**配布用のアプリではデバッグポートが開かないこと**（`--remote-debugging-port` を付けて起動しても `http://localhost:9222/json/version` が応答しない）を確認する。
+契約に配布用パッケージの作成が含まれる場合のみ。E2E テスト（`tests/e2e/sprint-N-packaged.spec.ts`）として書いて実行する。パッケージは展開して、中の実行ファイルを直接起動する。
+
+- 配布用のビルドが成功し、作ったアプリが起動する
+- **Electron の fuse** を読み取り（`@electron/fuses` の `getCurrentFuseWire`）、`RunAsNode`・`EnableNodeOptionsEnvironmentVariable`・`EnableNodeCliInspectArguments` が無効であること
+- **デバッグポートが開かない**: 次の起動方法をそれぞれ試し、どれでも `http://localhost:9222/json/version` が応答しないこと（起動を拒否して終了するものは、それでよい）
+  - 引数 `--remote-debugging-port=9222`／`--remote-debugging-pipe`／`--inspect=9222`／`--inspect-brk=9222`／`--inspect-port=9222 --inspect`
+  - 環境変数 デバッグポートの変数（generator の報告に記載）`=9222`／`NODE_OPTIONS=--inspect=9222`
+- `ELECTRON_RUN_AS_NODE=1` と `-e <コード>` を付けて起動しても、そのコードが実行されない（ファイルを書くコードを渡し、書かれていないことで確かめる）
+- パッケージ版のメニューに開発用の項目（再読み込み・開発者ツール）が無く、F12・Ctrl+Shift+I・Ctrl+R・F5 でも開発者ツールが開かず、再読み込みもされない
+- パッケージの中身に `tests/`・`docs/`・`.env*`・開発用の依存が含まれていない。**実行時に必要なパッケージが欠けていない**（主要な機能を配布版の E2E で1通り動かす）
+- 前の版からセキュリティ設定・データの形式・置き場所が変わっていない（配布が2回目以降の場合。前の版のデータをそのまま開ける）
 
 ## 判定と出力
 
@@ -239,13 +259,18 @@ E2E テストとして書いて実行する（`tests/e2e/sprint-N-edge.spec.ts`�
 - [x] 条件2 — 合格
 
 ### E2E テストの実行結果
-- `npm run test:e2e` — N passed（前スプリント分を含む）
+- 実行した範囲: 全体 / 絞った（選んだ spec の一覧と理由）
+- `npm run test:e2e` または `npx playwright test <spec...>` — N passed
 
 ### デザイン準拠チェック
-| 項目 | 期待値 | 実測値 | 判定 |
-|------|--------|--------|------|
+| 項目 | 期待値 | 期待値の出所（トークン / 確定事項 / designer の判断 N） | 実測値 | 判定 |
+|------|--------|------|--------|------|
 
 - 計測の方法: Playwright MCP / E2E テスト（MCP 未接続の理由）
+- 配色ごとの結果（配色が複数ある場合）
+
+### 確認待ち（報告制のみ）
+- designer の「トークン外の判断」のうち、ユーザーの確認がまだのもの（番号と内容）
 
 ### デザイン評価
 - デザインの質: 7/10
@@ -254,7 +279,7 @@ E2E テストとして書いて実行する（`tests/e2e/sprint-N-edge.spec.ts`�
 - 機能性: 8/10
 
 ### ウィンドウサイズ
-- 最小 (W×H) / 既定 (W×H) / 最大化 — 結果
+- 最小 (W×H) / 既定 (W×H) / 最大化 — 結果（配色ごと）
 
 ### エッジケース
 - （実施した項目、テスト名、結果）
@@ -305,7 +330,7 @@ E2E テストとして書いて実行する（`tests/e2e/sprint-N-edge.spec.ts`�
 - 条件2の再起動後の保持
 - sandbox の設定
 - 和文フォント
-- `tests/e2e/` 全体（デグレ確認）
+- デグレ確認: `tests/e2e/` 全体（絞る運用のときは、関係する spec の一覧）
 ```
 
 ## 重要
@@ -316,3 +341,5 @@ E2E テストとして書いて実行する（`tests/e2e/sprint-N-edge.spec.ts`�
 - **差し戻し先を必ず明記する**: 機能・ロジック・セキュリティ設定・型やテスト → Generator、見た目・ウィンドウサイズでの崩れ・AIスロップ → Designer
 - **テストしていないことを合格と書かない**: 実施できなかった項目は「未実施（理由）」と書き、それが契約条件なら不合格にする
 - **セキュリティ設定の違反は、機能が動いていても不合格**
+- **報告制のとき、designer が報告した判断を違反と数えない。報告していない食い違いは見逃さない**
+- **コミットしない**: `tests/e2e/` を書いたあとも、コミットはメインセッションに任せる

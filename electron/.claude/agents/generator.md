@@ -58,11 +58,16 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 Sprint 1 では、以下をそろえる：
 - `docs/spec.md` の技術スタックどおりのプロジェクト（TypeScript strict）
 - **CLAUDE.md の共通スクリプト**: `typecheck`・`lint`・`test`・`test:e2e`・`dev`・`dev:debug`・`build`
-- **`dev:debug` はデバッグポート 9222 を開いて起動する。** ポートを開く処理は開発時だけ有効にし、`app.isPackaged` が true のときは絶対に開かない
-- **保存先を環境変数で差し替えられる仕組み**（例: `APP_USER_DATA_DIR` が設定されていれば `app.setPath('userData', ...)` で差し替える）。E2E テストと画面確認で実データを汚さないため
+- **`dev:debug` はデバッグポート 9222 を開いて起動する。** 実装は CLAUDE.md の「セキュリティ設定」のデバッグポートの項に従う
+  - `dev:debug` はポート番号を環境変数（例: `APP_REMOTE_DEBUGGING_PORT=9222`）で渡す。main は「`app.isPackaged` が false、かつ環境変数に有効なポートがある」ときだけ、`app.commandLine.appendSwitch('remote-debugging-port', ...)` と **`appendSwitch('remote-allow-origins', 'http://localhost:9222')`** を `app.whenReady()` の前に呼ぶ（`remote-allow-origins` が無いと Playwright MCP の CDP 接続が拒否されることがある）
+  - パッケージ版では環境変数を無視する。さらに `app.commandLine.hasSwitch('remote-debugging-port')` / `hasSwitch('remote-debugging-pipe')` が true なら、エラーを表示して起動を拒否する（Chromium のスイッチはアプリ側で止められないため）
+  - この判定は Electron に依存しない純粋な関数（入力: `isPackaged`、環境変数の値、スイッチの有無 → 出力: 開く／開かない／拒否）として切り出し、ユニットテストを書く
+- **利用者のデータを置く場所を環境変数で差し替えられる仕組み**（例: `APP_USER_DATA_DIR` が設定されていれば `app.setPath('userData', ...)` を `app.whenReady()` の前に呼ぶ）。利用者が選ぶ保存先が別にあるなら、それにも環境変数を用意する。開発用の起動（`dev`・`dev:debug`）の既定の `userData` は、配布版と別の名前にする（`app.setName` か `userData` の末尾に `-dev` を付けるなど）。E2E テストと画面確認で実データを汚さないため
 - `BrowserWindow` の **最小サイズ（`minWidth` / `minHeight`）と既定サイズ**
 - CSP の設定、新しいウィンドウと画面遷移の制限
 - Playwright（`@playwright/test`）を開発用の依存に入れ、`tests/e2e/` を実行できる設定を置く（テストの中身は evaluator が書く。起動確認の1件だけ置いてよい）
+- `.gitignore`（`node_modules/`、ビルドの出力、`.env*`、`test-results/`、`.playwright-mcp/`）
+- **コミットはしない。** コミットはメインセッションがユーザーの了解のもとで行う
 
 ### 自己テストは実際に実行する
 「実装したから動くはず」は自己テストではない。以下を **実際に Bash で実行し、その出力を確認する**こと。完了報告には実行したコマンドと結果を書く。実行していない検証を「通過」と書いてはならない。
@@ -76,6 +81,8 @@ npm run test:e2e
 ```
 
 （パッケージマネージャーは `docs/spec.md` で決めたものに読み替える）
+
+E2E は既定で `tests/e2e/` 全体を実行する。`docs/spec.md` の「E2E テストの実行範囲」で「関係する spec だけ」に切り替えられている場合は、今回のスプリントの spec と、変更したファイル・画面・機能に関係する前のスプリントの spec を `npx playwright test <spec...>` で実行し、選んだ spec と理由を完了報告に書く。
 
 `docs/spec.md` の「重点検査」に挙がっている異常値・境界値は、evaluator が必ず試す。先に自分で試しておくこと。
 
@@ -94,6 +101,13 @@ npm run test:e2e
 - テストを省略する
 
 もしコンテキストが逼迫していると感じたら、機能を省略するのではなく、完了報告に正直に「未完了の項目」として記載する。
+
+### 配布のスプリント（契約に配布用パッケージの作成が含まれる場合）
+CLAUDE.md の「配布用ビルド」の項目をすべて満たす。
+- Electron の fuse を設定する（electron-builder なら `electronFuses`、Forge なら `@electron/fuses` のプラグイン）: `RunAsNode`・`EnableNodeOptionsEnvironmentVariable`・`EnableNodeCliInspectArguments` を無効、`EnableEmbeddedAsarIntegrityValidation` と `OnlyLoadAppFromAsar` を有効
+- パッケージ版のメニューから開発用の項目（再読み込み・開発者ツール）を外し、ショートカット（F12、Ctrl+Shift+I、Ctrl+R、F5）でも開かないようにする
+- パッケージに含めるファイルを絞る（`tests/`、`docs/`、`.env*`、開発用の依存を入れない）。**実行時に必要なパッケージを誤って外さないこと**（依存の入れ子を除外すると、配布版だけで機能が失敗する）。パッケージの中身を確かめるスクリプトを置き、`dist` 系のスクリプトの最後で実行する
+- 配布版の E2E が走れるよう、パッケージを展開して起動する手順を完了報告に書く
 
 ### データベース
 `docs/spec.md` の技術スタックに従う。データベースの処理は main に置く。
@@ -132,7 +146,7 @@ npm run test:e2e
 - `npm run lint` — （結果）
 - `npm run test` — （通過数）
 - `npm run build` — （結果）
-- `npm run test:e2e` — （通過数。既存の E2E テストを含む）
+- E2E — （実行した spec と通過数。全体を実行したか、絞ったなら選んだ spec と理由）
 
 ### 技術的な決定事項
 - （Generator が判断した実装方針、仕様の不足を補った前提）
@@ -149,7 +163,7 @@ npm run test:e2e
 - 作った・変えたスキーマの **DDL をそのまま**（秘密情報は書かない）
 
 ### 環境変数
-- （保存先を差し替える変数名を含む、必要なキー名と用途。値は書かない）
+- （利用者のデータの場所を差し替える変数名、デバッグポートの変数名を含む、必要なキー名と用途。値は書かない）
 
 ### Designer への引き継ぎ
 - UI 改善が必要な箇所、意図的に最低限にした箇所
@@ -162,8 +176,8 @@ npm run test:e2e
 
 ### 起動方法
 - 通常の起動: `npm run dev`
-- 画面確認用の起動: `npm run dev:debug`（デバッグポート 9222。保存先を差し替える環境変数の指定方法を併記）
-- E2E テスト: `npm run test:e2e`
+- 画面確認用の起動: `npm run dev:debug`（デバッグポート 9222。利用者のデータの場所を差し替える環境変数の指定方法を併記）
+- E2E テスト: `npm run test:e2e`（絞って実行する場合のコマンドも併記）
 ```
 
 ## 重要
